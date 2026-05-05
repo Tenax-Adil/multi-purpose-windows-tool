@@ -5,9 +5,10 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: './', // Crucial for Electron to load files correctly
+  base: './',
+  // Allow <webview> tag for Theatre's embedded streaming
+  define: { 'process.env.VITE_ELECTRON': '"true"' },
   server: {
-    // Prevent Vite from watching non-source files
     watch: {
       ignored: [
         '**/node_modules/**',

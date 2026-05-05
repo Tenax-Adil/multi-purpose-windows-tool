@@ -7,7 +7,7 @@ import {
   DollarSign, GraduationCap, Calendar, FileSearch, ArrowLeftRight, BookMarked,
   Loader2, Home, Binary, Palette, Shield, Clock, Webhook, Code2, GitCompare,
   Fingerprint, Dumbbell, Droplets, Flame, Activity, Heart, QrCode, Clock4,
-  BarChart3, Keyboard, HelpCircle, AlarmClock, CheckSquare
+  BarChart3, Keyboard, HelpCircle, AlarmClock, CheckSquare, Tv
 } from 'lucide-react'
 
 const Sorter=lazy(()=>import('./modules/Sorter'))
@@ -66,6 +66,7 @@ const RandomQuiz=lazy(()=>import('./modules/RandomQuiz'))
 const HomeworkDeadline=lazy(()=>import('./modules/HomeworkDeadline'))
 const MultiStopwatch=lazy(()=>import('./modules/MultiStopwatch'))
 const QrStudio=lazy(()=>import('./modules/QrStudio'))
+const AnimeCenter=lazy(()=>import('./modules/AnimeCenter/index'))
 
 const navGroups = [
   { label:'File Tools', color:'#6366f1', items:[
@@ -112,6 +113,9 @@ const navGroups = [
   { label:'General', color:'#14b8a6', items:[
     {id:'multistopwatch',label:'Multi Stopwatch',icon:Clock4},{id:'qrstudio',label:'QR Code Studio',icon:QrCode},
   ]},
+  { label:'Media', color:'#e879f9', items:[
+    {id:'animecenter',label:'Anime & Media Center',icon:Tv},
+  ]},
 ]
 
 const moduleMap = {
@@ -135,6 +139,7 @@ const moduleMap = {
   bodycalc:BodyCalculator,workoutlog:WorkoutLog,watertracker:WaterTracker,
   macrocalc:MacroCalc,workouttimer:WorkoutTimer,
   multistopwatch:MultiStopwatch,qrstudio:QrStudio,
+  animecenter:AnimeCenter,
 }
 
 const allItems = navGroups.flatMap(g=>g.items)
