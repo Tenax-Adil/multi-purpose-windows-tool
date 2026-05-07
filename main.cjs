@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, clipboard } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
@@ -17,29 +17,12 @@ app.disableHardwareAcceleration()
 // would trigger Vite's watcher and cause infinite HMR restarts)
 app.setPath('userData', path.join(os.tmpdir(), 'nextools-electron'))
 
-// ─── Local File Server state ──────────────────────────────────
-let fileServer = null
-let fileServerPort = 0
-let sharedFiles = [] // {name, size, path, uploadTime}
 
-// ─── Window references ───────────────────────────────────────
-let mainWindow, launcherWindow, timerWindow, dropzoneWindow
+let mainWindow
+
+
 
 // ─── Clipboard history (in-memory) ───────────────────────────
-let clipboardHistory = []
-let lastClip = ''
-
-function startClipboardWatcher() {
-  setInterval(() => {
-    const text = clipboard.readText()
-    if (text && text !== lastClip && text.trim().length > 0) {
-      lastClip = text
-      clipboardHistory.unshift({ text, timestamp: Date.now() })
-      if (clipboardHistory.length > 100) clipboardHistory.pop()
-    }
-  }, 800)
-}
-
 // ─── File extension → category mapping ───────────────────────
 const SORT_MAP = {
   Images:      ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.tiff', '.tif', '.svg', '.heic'],
@@ -51,8 +34,6 @@ const SORT_MAP = {
   Code:        ['.js', '.ts', '.py', '.java', '.cpp', '.c', '.cs', '.go', '.rs', '.html', '.css', '.json'],
 }
 
-// ─── chokidar watcher ─────────────────────────────────────────
-let fsWatcher = null
 
 // ─── Create Main Window ───────────────────────────────────────
 function createWindow() {
@@ -78,19 +59,7 @@ function createWindow() {
   }
 }
 
-// ─── Create Floating Widgets ──────────────────────────────────
-function createWidgets(isDev) {
-  const baseURL = isDev ? 'http://localhost:5173' : `file://${path.join(__dirname, 'dist', 'index.html')}`
-  const wpOpts = { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.cjs') }
 
-  launcherWindow = new BrowserWindow({ width: 640, height: 80, frame: false, transparent: true, alwaysOnTop: true, show: false, webPreferences: wpOpts })
-  timerWindow = new BrowserWindow({ width: 260, height: 64, frame: false, transparent: true, alwaysOnTop: true, show: false, webPreferences: wpOpts })
-  dropzoneWindow = new BrowserWindow({ width: 90, height: 280, x: 0, y: 350, frame: false, transparent: true, alwaysOnTop: true, type: 'toolbar', show: false, webPreferences: wpOpts })
-
-  launcherWindow.loadURL(`${baseURL}#launcher`)
-  timerWindow.loadURL(`${baseURL}#timer`)
-  dropzoneWindow.loadURL(`${baseURL}#dropzone`)
-}
 
 // ─── APP READY ────────────────────────────────────────────────
 app.whenReady().then(() => {
@@ -144,32 +113,7 @@ app.whenReady().then(() => {
     } catch (e) { return { success: false, error: e.message } }
   })
 
-  ipcMain.handle('folder:startWatcher', async (event, folderPath) => {
-    try {
-      const chokidar = require('chokidar')
-      if (fsWatcher) await fsWatcher.close()
-      fsWatcher = chokidar.watch(folderPath, { ignoreInitial: true, depth: 0 })
-      fsWatcher.on('add', async (filePath) => {
-        const file = path.basename(filePath)
-        const ext = path.extname(file).toLowerCase()
-        let category = 'Others'
-        for (const [cat, exts] of Object.entries(SORT_MAP)) {
-          if (exts.includes(ext)) { category = cat; break }
-        }
-        const targetDir = path.join(folderPath, category)
-        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir)
-        const target = path.join(targetDir, file)
-        if (!fs.existsSync(target)) fs.renameSync(filePath, target)
-      })
-      return { success: true }
-    } catch (e) { return { success: false, error: e.message } }
-  })
-
-  ipcMain.handle('folder:stopWatcher', async () => {
-    if (fsWatcher) { await fsWatcher.close(); fsWatcher = null }
-    return { success: true }
-  })
-
+  
   // ── Bulk Renamer ───────────────────────────────────────────
   ipcMain.handle('folder:listFiles', async (event, folderPath) => {
     try {
@@ -324,29 +268,10 @@ app.whenReady().then(() => {
   })
 
   // ── System Stats ───────────────────────────────────────────
-  ipcMain.handle('system:stats', async () => {
-    try {
-      const si = require('systeminformation')
-      const [cpu, cpuInfo, mem, disk, network] = await Promise.all([
-        si.currentLoad(), si.cpu(), si.mem(), si.fsSize(), si.networkStats()
-      ])
-      return { success: true, data: {
-        cpu: { ...cpuInfo, currentLoad: cpu.currentLoad },
-        mem, disk, network
-      }}
-    } catch (e) { return { success: false, error: e.message } }
-  })
-
+  
   // ── Clipboard ──────────────────────────────────────────────
-  ipcMain.handle('clipboard:getHistory', async () => {
-    return { success: true, history: clipboardHistory }
-  })
-
-  ipcMain.handle('clipboard:write', async (event, text) => {
-    clipboard.writeText(text)
-    return { success: true }
-  })
-
+  
+  
   // ── Text Tools / Hash ──────────────────────────────────────
   ipcMain.handle('text:generateHashes', async (event, input) => {
     try {
@@ -360,87 +285,7 @@ app.whenReady().then(() => {
     } catch (e) { return { success: false, error: e.message } }
   })
 
-  // ── Startup Manager ────────────────────────────────────────
-  async function getStartupFromKey(hive) {
-    // Use Get-Item .Property to get clean name list, then Get-ItemPropertyValue for values
-    const key = `${hive}:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run`
-    const entries = []
-    try {
-      const { stdout: names } = await execPromise(
-        `powershell -Command "(Get-Item 'Registry::${key}').Property"`,
-        { timeout: 8000 }
-      )
-      const nameList = names.trim().split('\n').map(n => n.trim()).filter(Boolean)
-      for (const name of nameList) {
-        try {
-          const { stdout: val } = await execPromise(
-            `powershell -Command "(Get-ItemProperty 'Registry::${key}' '${name.replace(/'/g, "''")}').'${name.replace(/'/g, "''")}' "`,
-            { timeout: 5000 }
-          )
-          entries.push({ name, value: val.trim(), enabled: true, scope: hive === 'HKCU' ? 'User' : 'System' })
-        } catch {
-          entries.push({ name, value: '(unable to read)', enabled: true, scope: hive === 'HKCU' ? 'User' : 'System' })
-        }
-      }
-    } catch {}
-    return entries
-  }
 
-  ipcMain.handle('system:getStartup', async () => {
-    try {
-      const [hklm, hkcu] = await Promise.all([getStartupFromKey('HKLM'), getStartupFromKey('HKCU')])
-      return { success: true, entries: [...hklm, ...hkcu] }
-    } catch (e) { return { success: false, error: e.message } }
-  })
-
-  ipcMain.handle('system:toggleStartup', async (event, name, value, enable) => {
-    try {
-      const key = `HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run`
-      if (enable) {
-        await execPromise(`powershell -Command "Set-ItemProperty '${key}' -Name '${name}' -Value '${value}'"`, { timeout: 8000 })
-      } else {
-        await execPromise(`powershell -Command "Remove-ItemProperty '${key}' -Name '${name}' -ErrorAction SilentlyContinue"`, { timeout: 8000 })
-      }
-      return { success: true }
-    } catch (e) { return { success: false, error: e.message } }
-  })
-
-  // ── Archive Manager ────────────────────────────────────────
-  ipcMain.handle('archive:create', async (event, { files, name, outputDir }) => {
-    try {
-      const archiver = require('archiver')
-      const outDir = outputDir || path.dirname(files[0])
-      const output = path.join(outDir, `${name}.zip`)
-      await new Promise((resolve, reject) => {
-        const out = fs.createWriteStream(output)
-        const archive = archiver('zip', { zlib: { level: 9 } })
-        out.on('close', resolve)
-        archive.on('error', reject)
-        archive.pipe(out)
-        for (const f of files) archive.file(f, { name: path.basename(f) })
-        archive.finalize()
-      })
-      return { success: true, output }
-    } catch (e) { return { success: false, error: e.message } }
-  })
-
-  ipcMain.handle('archive:extract', async (event, { archivePath, outputDir }) => {
-    try {
-      const unzipper = require('unzipper')
-      const outDir = outputDir || path.join(path.dirname(archivePath), path.basename(archivePath, '.zip'))
-      if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true })
-      const extractedFiles = []
-      await fs.createReadStream(archivePath)
-        .pipe(unzipper.Parse())
-        .on('entry', entry => {
-          const fileName = entry.path
-          extractedFiles.push(fileName)
-          entry.pipe(fs.createWriteStream(path.join(outDir, fileName)))
-        })
-        .promise()
-      return { success: true, output: outDir, files: extractedFiles }
-    } catch (e) { return { success: false, error: e.message } }
-  })
 
   // ── Network Scanner ────────────────────────────────────────
   ipcMain.handle('network:scan', async () => {
@@ -460,17 +305,6 @@ app.whenReady().then(() => {
     } catch (e) { return { success: false, error: e.message } }
   })
 
-  // ── Font List ──────────────────────────────────────────────
-  ipcMain.handle('fonts:list', async () => {
-    try {
-      const { stdout } = await execPromise(
-        `powershell -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Drawing') | Out-Null; (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }"`,
-        { timeout: 15000 }
-      )
-      const fonts = stdout.trim().split('\n').map(f => f.trim()).filter(Boolean)
-      return { success: true, fonts }
-    } catch (e) { return { success: false, error: e.message } }
-  })
 
   // ── Local WiFi File Sender ───────────────────────────────────
   function getLocalIP() {
@@ -610,28 +444,6 @@ app.whenReady().then(() => {
     return { success: true, running: !!fileServer, ip, port: fileServerPort, files: sharedFiles.map(f => ({ name: f.name, size: f.size })) }
   })
 
-  // ── Process Manager ────────────────────────────────────────
-  ipcMain.handle('process:list', async () => {
-    try {
-      const { stdout } = await execPromise('tasklist /FO CSV /NH', { timeout: 10000 })
-      const processes = []
-      for (const line of stdout.trim().split('\n')) {
-        const parts = line.split(',').map(p => p.replace(/"/g, '').trim())
-        if (parts.length >= 5) {
-          const mem = parseInt(parts[4].replace(/[^0-9]/g, '')) || 0
-          processes.push({ name: parts[0], pid: parseInt(parts[1]) || 0, session: parts[2], mem })
-        }
-      }
-      return { success: true, processes: processes.sort((a, b) => b.mem - a.mem) }
-    } catch (e) { return { success: false, error: e.message } }
-  })
-
-  ipcMain.handle('process:kill', async (event, pid) => {
-    try {
-      await execPromise(`taskkill /PID ${pid} /F`, { timeout: 5000 })
-      return { success: true }
-    } catch (e) { return { success: false, error: e.message } }
-  })
 
   // ── Screenshot ───────────────────────────────────────────
   ipcMain.handle('screenshot:take', async (event, { outputDir }) => {
@@ -910,12 +722,49 @@ app.whenReady().then(() => {
   })
 
 
-  // ── Widget Toggle ──────────────────────────────────────────
-  ipcMain.on('toggle-widget', (event, widget) => {
-    const wins = { timer: timerWindow, dropzone: dropzoneWindow }
-    const win = wins[widget]
-    if (win) win.isVisible() ? win.hide() : win.show()
+
+
+
+
+  // ── Wallpaper Dominant Color (Windows registry → file → jimp) ─
+  ipcMain.handle('wallpaper:getDominantColor', async () => {
+    try {
+      const { execSync } = require('node:child_process')
+      // Read wallpaper path from Windows registry
+      const regOut = execSync(
+        'reg query "HKCU\\Control Panel\\Desktop" /v Wallpaper',
+        { encoding: 'utf8', timeout: 3000 }
+      )
+      const match = regOut.match(/Wallpaper\s+REG_SZ\s+(.+)/)
+      if (!match) return null
+      const wpPath = match[1].trim()
+      if (!fs.existsSync(wpPath)) return null
+      // Sample 16×16 pixel grid via raw BMP (no jimp needed)
+      const buf = fs.readFileSync(wpPath)
+      // Simple BMP pixel sampler — works for 24/32-bit BMP wallpapers
+      // For PNG/JPG fall back to a neutral colour
+      const sig = buf.slice(0,2).toString('ascii')
+      if (sig !== 'BM') return '#1a1a2e'  // default for non-BMP
+      const pixelOffset = buf.readUInt32LE(10)
+      const w = buf.readInt32LE(18), h = Math.abs(buf.readInt32LE(22))
+      const bpp = buf.readUInt16LE(28)
+      if (bpp < 24) return '#1a1a2e'
+      const step = Math.max(1, Math.floor(w / 8))
+      let r=0,g=0,b=0,cnt=0
+      for (let x=0; x<w; x+=step) {
+        const rowByte = pixelOffset + (h-1) * w * (bpp/8) + x * (bpp/8)
+        if (rowByte + 3 > buf.length) continue
+        b += buf[rowByte]; g += buf[rowByte+1]; r += buf[rowByte+2]; cnt++
+      }
+      if (!cnt) return '#1a1a2e'
+      const hex = c => Math.round(c/cnt).toString(16).padStart(2,'0')
+      // Desaturate for a subtle glow (move toward dark)
+      const ri = Math.round(r/cnt * 0.35), gi = Math.round(g/cnt * 0.35), bi = Math.round(b/cnt * 0.35)
+      return `#${ri.toString(16).padStart(2,'0')}${gi.toString(16).padStart(2,'0')}${bi.toString(16).padStart(2,'0')}`
+    } catch { return '#1a1a2e' }
   })
+
+
 
   // ── Window Controls ────────────────────────────────────────
   ipcMain.on('window:close', () => mainWindow?.close())
@@ -925,19 +774,10 @@ app.whenReady().then(() => {
 
   // ── Init ───────────────────────────────────────────────────
   createWindow()
-  createWidgets(isDev)
-  startClipboardWatcher()
-
-  // Alt+Space global hotkey for Omni-Launcher
-  globalShortcut.register('Alt+Space', () => {
-    if (!launcherWindow) return
-    launcherWindow.isVisible() ? launcherWindow.hide() : (launcherWindow.show(), launcherWindow.focus())
-  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-app.on('will-quit', () => globalShortcut.unregisterAll())
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

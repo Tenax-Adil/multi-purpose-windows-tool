@@ -86,6 +86,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Floating Widgets
   toggleWidget:     (name)       => ipcRenderer.send('toggle-widget', name),
 
+  // Wallpaper Glass Sync
+  getWallpaperColor: ()          => ipcRenderer.invoke('wallpaper:getDominantColor'),
+
+  // Drop-Zone File Router
+  dropzoneGetRoutes:  ()         => ipcRenderer.invoke('dropzone:getRoutes'),
+  dropzoneSaveRoutes: (routes)   => ipcRenderer.invoke('dropzone:saveRoutes', routes),
+  dropzoneRouteFile:  (filePath) => ipcRenderer.invoke('dropzone:routeFile', filePath),
+
+  // Temporary File Vault
+  tempVaultAdd:    (filePath) => ipcRenderer.invoke('tempVault:add', filePath),
+  tempVaultList:   ()         => ipcRenderer.invoke('tempVault:list'),
+  tempVaultDelete: (id)       => ipcRenderer.invoke('tempVault:delete', id),
+
   // Window Controls
   closeWindow:      ()           => ipcRenderer.send('window:close'),
   minimizeWindow:   ()           => ipcRenderer.send('window:minimize'),

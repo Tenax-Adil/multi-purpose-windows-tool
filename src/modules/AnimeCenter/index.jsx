@@ -1,10 +1,13 @@
-// AnimeCenter/index.jsx — entry point, lazy-loaded by App.jsx
+// AnimeCenter/index.jsx
 import { useState } from 'react'
 import { ThemeProvider, createTheme, CssBaseline, Box, Tabs, Tab } from '@mui/material'
-import { LiveTv, AutoAwesome, Search } from '@mui/icons-material'
-import Tracker from './Tracker'
-import VibeEngine from './VibeEngine'
-import Theatre from './Theatre'
+import { LiveTv, AutoAwesome, Search, SyncAlt, PhotoSizeSelectLarge, Compress } from '@mui/icons-material'
+
+
+// Micro-tools
+import Converter from '../Converter'
+import BatchResizer from '../BatchResizer'
+import ImageCompressor from '../ImageCompressor'
 
 const darkGlass = createTheme({
   palette: { mode: 'dark', background: { default: 'transparent' } },
@@ -27,9 +30,9 @@ const darkGlass = createTheme({
 })
 
 const TABS = [
-  { label: 'Tracker', icon: <Search sx={{ fontSize: 18 }} /> },
-  { label: 'Vibe Engine', icon: <AutoAwesome sx={{ fontSize: 18 }} /> },
-  { label: 'Theatre', icon: <LiveTv sx={{ fontSize: 18 }} /> },
+  { label: 'Converter', icon: <SyncAlt sx={{ fontSize: 18 }} /> },
+  { label: 'Batch Resizer', icon: <PhotoSizeSelectLarge sx={{ fontSize: 18 }} /> },
+  { label: 'Compressor', icon: <Compress sx={{ fontSize: 18 }} /> },
 ]
 
 export default function AnimeCenter() {
@@ -38,19 +41,20 @@ export default function AnimeCenter() {
   return (
     <ThemeProvider theme={darkGlass}>
       <CssBaseline />
-      <Box>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <Box sx={{ mb: 1 }}>
           <h2 style={{ margin: '0 0 2px', color: 'rgba(255,255,255,0.9)', fontWeight: 700, fontSize: 24 }}>
             Anime & Media Center
           </h2>
           <p style={{ margin: 0, color: 'rgba(255,255,255,0.35)', fontSize: 13 }}>
-            Tracker · Vibe Engine · Embedded Theatre
+            Media Converters & Image Optimization
           </p>
         </Box>
 
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
+          variant="scrollable" scrollButtons="auto"
           sx={{
             mb: 2,
             '& .MuiTabs-indicator': { background: 'linear-gradient(90deg,#7c3aed,#a78bfa)', height: 3, borderRadius: 2 },
@@ -62,9 +66,11 @@ export default function AnimeCenter() {
           ))}
         </Tabs>
 
-        {tab === 0 && <Tracker />}
-        {tab === 1 && <VibeEngine />}
-        {tab === 2 && <Theatre />}
+        <Box sx={{ flex: 1, overflow: 'auto' }}>
+          {tab === 0 && <Converter />}
+          {tab === 1 && <BatchResizer />}
+          {tab === 2 && <ImageCompressor />}
+        </Box>
       </Box>
     </ThemeProvider>
   )
